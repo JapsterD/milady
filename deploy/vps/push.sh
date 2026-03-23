@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Push app-core fixes + built web UI to a VPS and restart Milady.
 #
+# Runtime uses bundled files under dist/ (especially dist/api/server.js), not only
+# packages/app-core/src — after changing server.ts, run root `bun run build` (or
+# build:lowcpu) locally so dist/* is updated, or set MILADY_VPS_REMOTE_BUILD=1.
+#
 # From repo root (after: cd apps/app && bun run build):
 #   export MILADY_VPS_HOST=root@203.0.113.10
 #   bash deploy/vps/push.sh
@@ -39,6 +43,13 @@ echo "==> rsync apps/app/dist"
 rsync -avz --delete \
   "$ROOT/apps/app/dist/" \
   "$MILADY_VPS_HOST:$REMOTE/apps/app/dist/"
+
+if [[ -f "$ROOT/dist/api/server.js" ]]; then
+  echo "==> rsync root dist bundles (api/server.js — what Bun actually loads)"
+  rsync -avz "$ROOT/dist/api/server.js" "$MILADY_VPS_HOST:$REMOTE/dist/api/"
+  [[ -f "$ROOT/dist/server.js" ]] && rsync -avz "$ROOT/dist/server.js" "$MILADY_VPS_HOST:$REMOTE/dist/" || true
+  [[ -f "$ROOT/dist/eliza.js" ]] && rsync -avz "$ROOT/dist/eliza.js" "$MILADY_VPS_HOST:$REMOTE/dist/" || true
+fi
 
 if [[ -n "${MILADY_VPS_REMOTE_BUILD:-}" ]]; then
   echo "==> remote: bun run build:lowcpu (can take a long time)"
