@@ -2777,7 +2777,8 @@ async function handleMiladyCompatRoute(
     return true;
   }
 
-  if (!ensureCompatApiAuthorized(req, res)) return true;
+  // Do not require API token for unrelated paths (e.g. GET / → dashboard static UI).
+  // Database compat performs its own auth when the route matches.
   return handleDatabaseRowsCompatRoute(req, res, state.current, url.pathname);
 }
 

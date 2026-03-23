@@ -32,7 +32,26 @@ export const BRAND_ENV_ALIASES = [
 const miladyMirroredEnvKeys = new Set<string>();
 const elizaMirroredEnvKeys = new Set<string>();
 
+function shouldForceElizaProductionNodeEnv(): boolean {
+  if (process.env.MILADY_FORCE_ELIZA_PRODUCTION_UI === "0") {
+    return false;
+  }
+  if (process.env.MILADY_FORCE_ELIZA_PRODUCTION_UI === "1") {
+    return true;
+  }
+  const hasApiToken =
+    Boolean(process.env.MILADY_API_TOKEN?.trim()) ||
+    Boolean(process.env.ELIZA_API_TOKEN?.trim());
+  // Eliza serves apps/app/dist only when NODE_ENV is "production" (resolveUiDir).
+  // Deploys that set an API token almost always need the HTML dashboard on GET /.
+  return hasApiToken;
+}
+
 export function syncMiladyEnvToEliza(): void {
+  if (shouldForceElizaProductionNodeEnv()) {
+    process.env.NODE_ENV = "production";
+  }
+
   for (const [miladyKey, elizaKey] of BRAND_ENV_ALIASES) {
     const value = process.env[miladyKey];
     if (typeof value === "string") {
