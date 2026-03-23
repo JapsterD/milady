@@ -104,7 +104,10 @@ await Promise.all([
 ]);
 
 async function runWriteBuildInfo() {
-  if (bunForScripts) {
+  const preferNodeForBuildInfo =
+    process.env.MILADY_VITE_LOW_CPU === "1" ||
+    process.env.MILADY_BUILD_INFO_NODE === "1";
+  if (bunForScripts && !preferNodeForBuildInfo) {
     await run(bunForScripts, [writeBuildInfoScript], rootDir);
     return;
   }

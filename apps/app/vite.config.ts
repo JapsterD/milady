@@ -2,9 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react-swc";
+import reactBabel from "@vitejs/plugin-react";
+import reactSwc from "@vitejs/plugin-react-swc";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
+
+/** Old / QEMU vCPUs without AVX: SWC native binary can SIGILL — use Babel plugin instead. */
+const lowCpuVite = process.env.MILADY_VITE_LOW_CPU === "1";
+const reactPlugin = lowCpuVite ? reactBabel() : reactSwc();
 
 // Keep this as a workspace-relative import so Vite transpiles the TS module
 // while bundling the config instead of asking Node to load a package-exported
@@ -100,7 +105,7 @@ export default defineConfig({
     sparkWasmDataUrlPlugin(),
     watchWorkspacePackagesPlugin(),
     tailwindcss(),
-    react(),
+    reactPlugin,
     desktopCorsPlugin(),
   ],
   esbuild: {
@@ -225,9 +230,9 @@ export default defineConfig({
     emptyOutDir: !desktopFastDist,
     sourcemap: desktopFastDist ? false : enableAppSourceMaps,
     target: "es2022",
-    minify: desktopFastDist ? false : undefined,
-    cssMinify: desktopFastDist ? false : undefined,
-    reportCompressedSize: !desktopFastDist,
+    minify: desktopFastDist ? false : lowCpuVite ? "esbuild" : undefined,
+    cssMinify: desktopFastDist ? false : lowCpuVite ? "esbuild" : undefined,
+    reportCompressedSize: !desktopFastDist && !lowCpuVite,
     rollupOptions: {
       input: {
         main: path.resolve(here, "index.html"),

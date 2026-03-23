@@ -1,0 +1,33 @@
+#!/usr/bin/expect -f
+# Run one remote command via ssh with password from DEPLOY_SSH_PASSWORD.
+# Usage: milady-remote-ssh.exp user@host bash -lc 'remote command'
+# push.sh calls: expect ... $MILADY_VPS_HOST $single_remote_command_string
+if {![info exists env(DEPLOY_SSH_PASSWORD)]} {
+  puts stderr "milady-remote-ssh.exp: set DEPLOY_SSH_PASSWORD"
+  exit 1
+}
+set password $env(DEPLOY_SSH_PASSWORD)
+if {[info exists env(MILADY_VPS_SSH_PORT)] && $env(MILADY_VPS_SSH_PORT) != ""} {
+  set port $env(MILADY_VPS_SSH_PORT)
+} else {
+  set port 22
+}
+set host [lindex $argv 0]
+set bashcmd [join [lrange $argv 1 end]]
+set timeout -1
+spawn ssh -p $port -o StrictHostKeyChecking=accept-new $host bash -lc [list $bashcmd]
+expect {
+  -re "(?i)password:" {
+    send "$password\r"
+    exp_continue
+  }
+  -re "yes/no.*fingerprint" {
+    send "yes\r"
+    exp_continue
+  }
+  eof
+}
+catch wait result
+set code [lindex $result 3]
+if {$code == ""} { set code 0 }
+exit $code

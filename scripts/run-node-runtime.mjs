@@ -1,22 +1,35 @@
-const KNOWN_UNSTABLE_BUN_LINUX = /^1\.3\.9(?:$|[-+].*)/;
+const KNOWN_RISKY_BUN_LINUX = /^1\.3\.(?:9|[1-9][0-9])(?:$|[-+].*)/;
 
 /**
- * Bun 1.3.9 has known Linux segfault reports in long-running workloads.
- * Prefer Node by default for this one runtime/version combination.
+ * Bun 1.3.9+ on Linux has crash reports on some hosts (no AVX / odd vCPUs).
+ * We do NOT fall back to Node for `milady.mjs`: Node cannot resolve some
+ * extensionless ESM imports in @elizaos/agent. Use MILADY_BUN_BIN with Bun 1.2.x instead.
  */
-export function isKnownUnstableBunOnLinux({ platform, bunVersion }) {
+export function isKnownRiskyBunOnLinux({ platform, bunVersion }) {
   return (
     platform === "linux" &&
     typeof bunVersion === "string" &&
-    KNOWN_UNSTABLE_BUN_LINUX.test(bunVersion)
+    KNOWN_RISKY_BUN_LINUX.test(bunVersion)
   );
+}
+
+/**
+ * Explicit path to the Bun binary for the Milady child process (runtime = bun).
+ * Prefer this on VPS when system Bun is 1.3.x and crashes; use Bun 1.2.22+ here.
+ */
+export function resolveBunExecPath() {
+  const explicit =
+    process.env.MILADY_BUN_BIN?.trim() || process.env.ELIZA_BUN_BIN?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  return "bun";
 }
 
 /**
  * Runtime selection priority:
  * 1) Explicit ELIZA_RUNTIME override (bun|node)
- * 2) Safety fallback for known unstable Bun/Linux combo
- * 3) Default to bun
+ * 2) Default to bun (see warnings for risky Bun/Linux combos)
  */
 export function chooseMiladyRuntime({
   requestedRuntime,
@@ -28,11 +41,11 @@ export function chooseMiladyRuntime({
     return { runtime: normalized, warning: null };
   }
 
-  if (isKnownUnstableBunOnLinux({ platform, bunVersion })) {
+  if (isKnownRiskyBunOnLinux({ platform, bunVersion })) {
     return {
-      runtime: "node",
+      runtime: "bun",
       warning:
-        "Detected Bun 1.3.9 on Linux (known segfault risk). Defaulting runtime to Node.js.",
+        "Bun 1.3.9+ on Linux can crash on weak CPUs. Install Bun 1.2.22 and set MILADY_BUN_BIN to that binary (see scripts/rebuild-sharp-lowcpu.sh / VPS docs).",
     };
   }
 
@@ -69,7 +82,7 @@ export function resolveRuntimeExecPath({
   explicitNodePath,
 }) {
   if (runtime === "bun") {
-    return "bun";
+    return resolveBunExecPath();
   }
   return resolveNodeExecPath({
     currentExecPath,

@@ -6,7 +6,7 @@ import {
 import { normalizeCloudSiteUrl } from "@elizaos/agent/cloud/base-url";
 import type { CloudManager } from "@elizaos/agent/cloud/cloud-manager";
 import { validateCloudBaseUrl } from "@elizaos/agent/cloud/validate-url";
-import type { AgentRuntime } from "@elizaos/core";
+import { logger, type AgentRuntime } from "@elizaos/core";
 import type { ElizaConfig } from "../config/config";
 import { saveElizaConfig } from "../config/config";
 import { createIntegrationTelemetrySpan } from "../diagnostics/integration-observability";
@@ -40,6 +40,87 @@ type RuntimeCloudLike = AgentRuntime & {
 };
 
 const CLOUD_LOGIN_POLL_TIMEOUT_MS = 10_000;
+
+/**
+ * After browser "Connect Eliza Cloud", credentials are persisted but the
+ * AgentRuntime still has the plugin set from the previous boot. Without a
+ * restart, `@elizaos/plugin-elizacloud` never registers TEXT_LARGE — chat
+ * stays broken. Provider switch uses the same pattern (restart-required).
+ *
+ * Skip in tests via MILADY_SKIP_CLOUD_LOGIN_RESTART=1.
+ */
+function resolveLoopbackApiPort(req: http.IncomingMessage): string | null {
+  const fromEnv =
+    process.env.MILADY_PORT?.trim() || process.env.ELIZA_PORT?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  const rawHost = req.headers.host;
+  if (!rawHost) {
+    return "2138";
+  }
+  try {
+    const parsed = new URL(`http://${rawHost}`);
+    if (parsed.port) {
+      return parsed.port;
+    }
+  } catch {
+    return null;
+  }
+  // Browser hits https://domain (nginx → app on 2138); Host has no port.
+  return "2138";
+}
+
+function scheduleMiladyAgentRestartAfterCloudLogin(
+  req: http.IncomingMessage,
+): void {
+  if (process.env.MILADY_SKIP_CLOUD_LOGIN_RESTART === "1") {
+    return;
+  }
+  const rawHost = req.headers.host;
+  if (!rawHost) {
+    logger.warn(
+      "[cloud-login] Skip auto-restart: missing Host header (set MILADY_API_TOKEN and restart the service manually after connecting cloud)",
+    );
+    return;
+  }
+  const port = resolveLoopbackApiPort(req);
+  if (!port) {
+    logger.warn(
+      `[cloud-login] Skip auto-restart: invalid Host header (${rawHost})`,
+    );
+    return;
+  }
+  const auth =
+    typeof req.headers.authorization === "string" &&
+    req.headers.authorization.trim()
+      ? req.headers.authorization.trim()
+      : typeof req.headers["x-api-token"] === "string" &&
+          req.headers["x-api-token"].trim()
+        ? `Bearer ${String(req.headers["x-api-token"]).trim()}`
+        : null;
+  if (!auth) {
+    logger.warn(
+      "[cloud-login] Skip auto-restart: no Authorization or X-API-Token — call POST /api/restart after connecting cloud, or reconnect with a tokened client",
+    );
+    return;
+  }
+  const loopback = `http://127.0.0.1:${port}`;
+  const headers: Record<string, string> = {
+    Authorization: auth,
+    Host: rawHost,
+  };
+  setTimeout(() => {
+    void fetch(new URL("/api/restart", loopback), {
+      method: "POST",
+      headers,
+    }).catch((err) => {
+      logger.warn(
+        `[cloud-login] POST /api/restart failed (${err instanceof Error ? err.message : String(err)}) — run: systemctl restart milady (or POST /api/restart with your API token)`,
+      );
+    });
+  }, 800);
+}
 
 type TelemetrySpan = {
   success: (meta?: Record<string, unknown>) => void;
@@ -306,10 +387,21 @@ export async function handleCloudRoute(
         apiKey: data.apiKey,
         state,
       });
+      const scheduleRestartWhenDone = () => {
+        scheduleMiladyAgentRestartAfterCloudLogin(req);
+      };
+      if (typeof res.once === "function") {
+        res.once("finish", scheduleRestartWhenDone);
+      } else {
+        // Unit-test mocks omit EventEmitter — run after sendJson/end completes.
+        queueMicrotask(scheduleRestartWhenDone);
+      }
       sendJson(res, {
         status: "authenticated",
         keyPrefix:
           typeof data.keyPrefix === "string" ? data.keyPrefix : undefined,
+        restarting: true,
+        requiresRuntimeRestart: true,
       });
       return true;
     }

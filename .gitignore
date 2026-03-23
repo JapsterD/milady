@@ -151,3 +151,6 @@ apps/app/ios/App/build*/
 # Ignored caches
 .ruff_cache/
 cache/voice/
+
+# VPS deploy credentials (copy from .env.deploy.example)
+deploy/vps/.env.deploy

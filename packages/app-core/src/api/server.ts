@@ -2256,12 +2256,17 @@ async function handleMiladyCompatRoute(
     return true;
   }
 
-  const cloudConfigPath =
+  // Include Eliza Cloud OAuth login routes so Milady's handler runs (sealed
+  // secrets + restart after auth). If these hit upstream only, credentials
+  // update but the running runtime keeps the old plugin set — chat breaks.
+  const miladyManagedCloudRoute =
     url.pathname === "/api/cloud/status" ||
     url.pathname === "/api/cloud/credits" ||
-    url.pathname === "/api/cloud/disconnect";
+    url.pathname === "/api/cloud/disconnect" ||
+    url.pathname === "/api/cloud/login" ||
+    url.pathname.startsWith("/api/cloud/login/");
 
-  if (cloudConfigPath) {
+  if (miladyManagedCloudRoute) {
     if (!ensureCompatApiAuthorized(req, res)) {
       return true;
     }

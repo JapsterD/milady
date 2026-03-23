@@ -131,32 +131,33 @@ RUN npm install -g tsx@4 && npm cache clean --force
 
 WORKDIR /app
 
+# Official node images ship a `node` user (UID 1000). Use numeric chown for BuildKit compatibility.
 # Copy built dist (thin JS wrappers ~800KB)
-COPY --from=pruner --chown=agent:agent /build/dist ./dist
+COPY --from=pruner --chown=1000:1000 /build/dist ./dist
 
 # Copy milady.mjs entry point and root package.json
-COPY --from=pruner --chown=agent:agent /build/milady.mjs ./milady.mjs
-COPY --from=pruner --chown=agent:agent /build/package.json ./package.json
+COPY --from=pruner --chown=1000:1000 /build/milady.mjs ./milady.mjs
+COPY --from=pruner --chown=1000:1000 /build/package.json ./package.json
 
 # Copy source code (needed because workspace packages have relative imports
 # back to src/ — e.g. packages/agent/src/runtime/eliza.ts imports
 # from ../../../../src/runtime/milady-plugin.ts)
-COPY --from=pruner --chown=agent:agent /build/src ./src
+COPY --from=pruner --chown=1000:1000 /build/src ./src
 
 # Copy workspace packages (especially @elizaos/agent which IS the runtime)
-COPY --from=pruner --chown=agent:agent /build/packages ./packages
+COPY --from=pruner --chown=1000:1000 /build/packages ./packages
 
 # Copy apps dir structure (some workspace links reference it)
-COPY --from=pruner --chown=agent:agent /build/apps ./apps
+COPY --from=pruner --chown=1000:1000 /build/apps ./apps
 
 # Copy tsconfig for tsx resolution
-COPY --from=pruner --chown=agent:agent /build/tsconfig.json ./tsconfig.json
+COPY --from=pruner --chown=1000:1000 /build/tsconfig.json ./tsconfig.json
 
 # Copy pruned node_modules
-COPY --from=pruner --chown=agent:agent /build/node_modules ./node_modules
+COPY --from=pruner --chown=1000:1000 /build/node_modules ./node_modules
 
 # Copy scripts needed for runtime
-COPY --from=pruner --chown=agent:agent /build/scripts ./scripts
+COPY --from=pruner --chown=1000:1000 /build/scripts ./scripts
 
 ENV NODE_ENV=production
 ENV MILADY_API_BIND="0.0.0.0"
@@ -175,8 +176,7 @@ EXPOSE ${PORT}
 EXPOSE ${BRIDGE_PORT}
 
 # Security: run as non-root
-RUN useradd -m agent
-USER agent
+USER node
 
 # Start the real Milady runtime in headless/server-only mode
 # Uses tsx register for TypeScript workspace package resolution

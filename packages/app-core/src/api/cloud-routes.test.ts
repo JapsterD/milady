@@ -11,6 +11,12 @@ import {
   handleCloudRoute,
 } from "./cloud-routes";
 
+/** Appended to GET /api/cloud/login/status when auth succeeds (runtime restart). */
+const CLOUD_LOGIN_AUTH_JSON_EXTRAS = {
+  restarting: true,
+  requiresRuntimeRestart: true,
+} as const;
+
 const fetchMock =
   vi.fn<
     (input: string | URL | Request, init?: RequestInit) => Promise<Response>
@@ -43,6 +49,7 @@ function createState(createAgent: (args: unknown) => Promise<unknown>) {
 
 // Keep these route tests hermetic: login helpers should never call the live cloud service.
 beforeEach(() => {
+  process.env.MILADY_SKIP_CLOUD_LOGIN_RESTART = "1";
   fetchMock.mockReset();
   saveElizaConfigMock.mockReset();
   validateCloudBaseUrlMock.mockReset();
@@ -55,6 +62,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   delete process.env.ELIZAOS_CLOUD_API_KEY;
   delete process.env.ELIZAOS_CLOUD_ENABLED;
+  delete process.env.MILADY_SKIP_CLOUD_LOGIN_RESTART;
 });
 
 describe("handleCloudRoute", () => {
@@ -1253,6 +1261,7 @@ describe("handleCloudRoute timeout behavior", () => {
     expect(getJson()).toEqual({
       status: "authenticated",
       keyPrefix: undefined,
+      ...CLOUD_LOGIN_AUTH_JSON_EXTRAS,
     });
     expect(initMock).not.toHaveBeenCalled();
   });
@@ -1291,6 +1300,7 @@ describe("handleCloudRoute timeout behavior", () => {
     expect(getJson()).toEqual({
       status: "authenticated",
       keyPrefix: undefined,
+      ...CLOUD_LOGIN_AUTH_JSON_EXTRAS,
     });
   });
 
@@ -1462,6 +1472,7 @@ describe("handleCloudRoute timeout behavior", () => {
     expect(getJson()).toEqual({
       status: "authenticated",
       keyPrefix: undefined,
+      ...CLOUD_LOGIN_AUTH_JSON_EXTRAS,
     });
     expect(initMock).toHaveBeenCalledTimes(1);
   });
@@ -1499,7 +1510,11 @@ describe("handleCloudRoute timeout behavior", () => {
 
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(200);
-    expect(getJson()).toEqual({ status: "authenticated", keyPrefix: "ak-pfx" });
+    expect(getJson()).toEqual({
+      status: "authenticated",
+      keyPrefix: "ak-pfx",
+      ...CLOUD_LOGIN_AUTH_JSON_EXTRAS,
+    });
     expect(saveElizaConfigMock).toHaveBeenCalledWith(state.config);
     expect(initMock).toHaveBeenCalledTimes(1);
     // Keys are scrubbed from process.env into the sealed store
@@ -1548,6 +1563,7 @@ describe("handleCloudRoute timeout behavior", () => {
     expect(getJson()).toEqual({
       status: "authenticated",
       keyPrefix: undefined,
+      ...CLOUD_LOGIN_AUTH_JSON_EXTRAS,
     });
     expect(updateAgentMock).toHaveBeenCalledTimes(1);
     expect(initMock).toHaveBeenCalledTimes(1);
@@ -1614,6 +1630,7 @@ describe("handleCloudRoute timeout behavior", () => {
     expect(getJson()).toEqual({
       status: "authenticated",
       keyPrefix: undefined,
+      ...CLOUD_LOGIN_AUTH_JSON_EXTRAS,
     });
     expect(updateAgentMock).toHaveBeenCalledWith(
       "00000000-0000-0000-0000-000000000001",
@@ -1661,6 +1678,7 @@ describe("handleCloudRoute timeout behavior", () => {
     expect(getJson()).toEqual({
       status: "authenticated",
       keyPrefix: undefined,
+      ...CLOUD_LOGIN_AUTH_JSON_EXTRAS,
     });
     expect(initMock).toHaveBeenCalledTimes(1);
     expect(process.env.ELIZAOS_CLOUD_API_KEY).toBeUndefined();
@@ -1707,6 +1725,7 @@ describe("handleCloudRoute timeout behavior", () => {
     expect(getJson()).toEqual({
       status: "authenticated",
       keyPrefix: "run-key",
+      ...CLOUD_LOGIN_AUTH_JSON_EXTRAS,
     });
     expect(updateAgentMock).toHaveBeenCalledWith(
       "00000000-0000-0000-0000-000000000001",

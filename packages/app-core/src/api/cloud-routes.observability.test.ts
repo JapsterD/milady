@@ -43,6 +43,7 @@ function cloudState(): CloudRouteState {
 
 describe("cloud routes observability", () => {
   beforeEach(() => {
+    process.env.MILADY_SKIP_CLOUD_LOGIN_RESTART = "1";
     vi.unstubAllGlobals();
     vi.clearAllMocks();
     validateCloudBaseUrlMock.mockResolvedValue(null);
@@ -54,6 +55,7 @@ describe("cloud routes observability", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    delete process.env.MILADY_SKIP_CLOUD_LOGIN_RESTART;
   });
 
   it("records success for cloud login create-session flow", async () => {

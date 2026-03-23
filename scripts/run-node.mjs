@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -22,6 +22,66 @@ env.NODE_PATH = env.NODE_PATH
   ? `${rootModules}${path.delimiter}${env.NODE_PATH}`
   : rootModules;
 const compiler = "tsdown";
+
+/** systemd often runs this script with Node; child still uses Bun — probe PATH for version warnings. */
+const resolveBunVersionForRuntimeChoice = () => {
+  if (process.versions?.bun) {
+    return process.versions.bun;
+  }
+  const bunBin =
+    process.env.MILADY_BUN_BIN?.trim() ||
+    process.env.ELIZA_BUN_BIN?.trim() ||
+    "bun";
+  try {
+    const out = spawnSync(bunBin, ["--version"], {
+      encoding: "utf8",
+      env: process.env,
+    });
+    if (out.status !== 0) {
+      return undefined;
+    }
+    const line = out.stdout?.trim()?.split("\n")[0] ?? "";
+    const m = line.match(/(\d+\.\d+\.\d+)/);
+    return m ? m[1] : line || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const resolveTsdownCli = () => {
+  const p = path.join(cwd, "node_modules", "tsdown", "dist", "run.mjs");
+  return fs.existsSync(p) ? p : null;
+};
+
+/** Prefer Node-driven tsdown on minimal VPS (no bunx / Bun crashes on write-build-info). */
+const useNodeForTsdown = () =>
+  env.MILADY_TSDOWN_NODE === "1" || env.MILADY_VITE_LOW_CPU === "1";
+
+const spawnTsdownBuild = (onExit) => {
+  const tsdownCli = resolveTsdownCli();
+  const nodeForTsdown = env.ELIZA_NODE_PATH?.trim() || process.execPath;
+  if (useNodeForTsdown() && tsdownCli) {
+    const build = spawn(nodeForTsdown, [tsdownCli], {
+      cwd,
+      env,
+      stdio: "inherit",
+    });
+    build.on("exit", onExit);
+    return;
+  }
+  const bunxArgs = [compiler];
+  const buildCmd = process.platform === "win32" ? "cmd.exe" : "bunx";
+  const buildArgs =
+    process.platform === "win32"
+      ? ["/d", "/s", "/c", "bunx", ...bunxArgs]
+      : bunxArgs;
+  const build = spawn(buildCmd, buildArgs, {
+    cwd,
+    env,
+    stdio: "inherit",
+  });
+  build.on("exit", onExit);
+};
 
 const distRoot = path.join(cwd, "dist");
 const distEntry = path.join(distRoot, "/entry.js");
@@ -130,10 +190,10 @@ const runNode = () => {
   const { runtime, warning } = chooseMiladyRuntime({
     requestedRuntime: process.env.ELIZA_RUNTIME,
     platform: process.platform,
-    bunVersion: process.versions?.bun,
+    bunVersion: resolveBunVersionForRuntimeChoice(),
   });
   if (warning) {
-    logRunner(`${warning} Set ELIZA_RUNTIME=bun to force Bun runtime.`);
+    logRunner(warning);
   }
   const execPath = resolveRuntimeExecPath({
     runtime,
@@ -161,18 +221,7 @@ const runNode = () => {
       // Re-check whether a rebuild is needed (source files may have changed).
       if (shouldBuild()) {
         logRunner("Building TypeScript (dist is stale).");
-        const bunxArgs = [compiler];
-        const buildCmd = process.platform === "win32" ? "cmd.exe" : "bunx";
-        const buildArgs =
-          process.platform === "win32"
-            ? ["/d", "/s", "/c", "bunx", ...bunxArgs]
-            : bunxArgs;
-        const build = spawn(buildCmd, buildArgs, {
-          cwd,
-          env,
-          stdio: "inherit",
-        });
-        build.on("exit", (code, signal) => {
+        spawnTsdownBuild((code, signal) => {
           if (signal || (code !== 0 && code !== null)) {
             logRunner("Rebuild failed, restarting anyway.");
           } else {
@@ -206,20 +255,7 @@ if (!shouldBuild()) {
   runNode();
 } else {
   logRunner("Building TypeScript (dist is stale).");
-  // Eliza MIGRATION: Use bunx for faster builds
-  const bunxArgs = [compiler];
-  const buildCmd = process.platform === "win32" ? "cmd.exe" : "bunx";
-  const buildArgs =
-    process.platform === "win32"
-      ? ["/d", "/s", "/c", "bunx", ...bunxArgs]
-      : bunxArgs;
-  const build = spawn(buildCmd, buildArgs, {
-    cwd,
-    env,
-    stdio: "inherit",
-  });
-
-  build.on("exit", (code, signal) => {
+  spawnTsdownBuild((code, signal) => {
     if (signal) {
       process.exit(1);
     }

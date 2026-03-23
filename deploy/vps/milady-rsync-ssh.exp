@@ -1,0 +1,30 @@
+#!/usr/bin/expect -f
+# Used as rsync's -e program when sshpass is unavailable (macOS).
+# Env: DEPLOY_SSH_PASSWORD, MILADY_VPS_SSH_PORT (default 22)
+if {![info exists env(DEPLOY_SSH_PASSWORD)]} {
+  puts stderr "milady-rsync-ssh.exp: set DEPLOY_SSH_PASSWORD"
+  exit 1
+}
+set password $env(DEPLOY_SSH_PASSWORD)
+if {[info exists env(MILADY_VPS_SSH_PORT)]} {
+  set port $env(MILADY_VPS_SSH_PORT)
+} else {
+  set port 22
+}
+set timeout -1
+eval spawn ssh -p $port -o StrictHostKeyChecking=accept-new [lrange $argv 0 end]
+expect {
+  -re "(?i)password:" {
+    send "$password\r"
+    exp_continue
+  }
+  -re "yes/no.*fingerprint" {
+    send "yes\r"
+    exp_continue
+  }
+  eof
+}
+catch wait result
+set code [lindex $result 3]
+if {$code == ""} { set code 0 }
+exit $code
