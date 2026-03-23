@@ -1,0 +1,49 @@
+# Example systemd unit for Milady on a weak x86_64 VPS (no AVX / no x86-64-v2).
+#
+# Install:
+#   sudo cp deploy/vps/milady.service.example /etc/systemd/system/milady.service
+#   sudo nano /etc/systemd/system/milady.service   # fix paths if not /opt/milady
+#   sudo cp deploy/vps/milady-deploy.env.example /opt/milady-deploy.env
+#   sudo nano /opt/milady-deploy.env               # secrets + MILADY_BUN_BIN if needed
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now milady
+#
+# Updates without full git pull (from your laptop, after local `cd apps/app && bun run build`):
+#   export MILADY_VPS_HOST=root@your.server
+#   bash deploy/vps/push.sh
+#
+# Build on server before first start:
+#   apt install -y build-essential python3 pkg-config libvips-dev libglib2.0-dev nodejs
+#   curl -fsSL https://bun.sh/install | bash -s "bun-v1.2.22"
+#   cd /opt/milady && bun install && bun run build:lowcpu && touch dist/.buildstamp
+
+[Unit]
+Description=Milady AI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/milady
+
+# Secrets and overrides (create this file on the server; mode 600).
+EnvironmentFile=-/opt/milady-deploy.env
+
+# Low-CPU VPS: Vite uses Babel, write-build-info/tsdown prefer Node when MILADY_VITE_LOW_CPU=1.
+Environment=NODE_ENV=production
+Environment=MILADY_VITE_LOW_CPU=1
+
+# Ensure bun / bunx resolve when the runner shells out (adjust if Bun lives elsewhere).
+Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+ExecStart=/usr/bin/node /opt/milady/scripts/run-node.mjs start
+Restart=on-failure
+RestartSec=10
+
+# Optional: cap memory on small VMs (uncomment and tune).
+# MemoryMax=5G
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
